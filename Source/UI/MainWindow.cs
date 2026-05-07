@@ -3,6 +3,9 @@ using System.Numerics;
 using BoneSmith.Models;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using BoneSmith.Services;
+using ImGuiNET;
+
 
 namespace BoneSmith.UI;
 
@@ -79,7 +82,11 @@ public sealed class MainWindow : Window, IDisposable
                 DrawRecoveryTab();
                 ImGui.EndTabItem();
             }
-
+            if (ImGui.BeginTabItem("Templates"))
+            {
+            DrawTemplatesTab();
+            ImGui.EndTabItem();
+}
             if (ImGui.BeginTabItem("Settings"))
             {
                 DrawSettingsTab();
@@ -711,4 +718,251 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.SameLine();
         ImGui.TextWrapped(value);
     }
+    private string newTemplateName = "New Template";
+
+private void DrawTemplatesTab()
+{
+    var templates = plugin.BoneSmithTemplateService.Templates;
+    var catalog = plugin.BoneCatalogService.LastCatalog;
+
+    if (catalog.Count == 0)
+    {
+        plugin.BoneCatalogService.Refresh();
+        catalog = plugin.BoneCatalogService.LastCatalog;
+    }
+
+    var leftWidth = 220f;
+    var middleWidth = 300f;
+
+    ImGui.BeginChild("TemplateListPanel", new Vector2(leftWidth, 0), true);
+    DrawTemplateListPanel(templates);
+    ImGui.EndChild();
+
+    ImGui.SameLine();
+
+    ImGui.BeginChild("BoneBrowserPanel", new Vector2(middleWidth, 0), true);
+    DrawBoneBrowserPanel(catalog);
+    ImGui.EndChild();
+
+    ImGui.SameLine();
+
+    ImGui.BeginChild("BoneEditorPanel", new Vector2(0, 0), true);
+    DrawBoneEditorPanel();
+    ImGui.EndChild();
+}
+
+private void DrawTemplateListPanel(List<BoneSmithTemplate> templates)
+{
+    ImGui.Text("Templates");
+
+    ImGui.SetNextItemWidth(-1);
+    ImGui.InputText("##NewTemplateName", ref newTemplateName, 64);
+
+    if (ImGui.Button("New Template", new Vector2(-1, 30)))
+    {
+        var created = plugin.BoneSmithTemplateService.CreateNew(newTemplateName);
+        plugin.Configuration.ActiveBoneSmithTemplateId = created.UniqueId;
+        plugin.SaveConfig();
+    }
+
+    ImGui.Separator();
+
+    foreach (var template in templates)
+    {
+        var selected = string.Equals(
+            plugin.Configuration.ActiveBoneSmithTemplateId,
+            template.UniqueId,
+            StringComparison.OrdinalIgnoreCase);
+
+        if (ImGui.Selectable($"{template.Name}##{template.UniqueId}", selected))
+        {
+            plugin.Configuration.ActiveBoneSmithTemplateId = template.UniqueId;
+            plugin.SaveConfig();
+        }
+    }
+
+    var active = GetActiveBoneSmithTemplate();
+
+    if (active is null)
+        return;
+
+    ImGui.Separator();
+
+    if (ImGui.Button("Save", new Vector2(-1, 30)))
+    {
+        plugin.BoneSmithTemplateService.Save(active);
+    }
+
+    if (ImGui.Button("Delete", new Vector2(-1, 30)))
+    {
+        plugin.BoneSmithTemplateService.Delete(active);
+        plugin.Configuration.ActiveBoneSmithTemplateId = null;
+        plugin.Configuration.ActiveBoneName = null;
+        plugin.SaveConfig();
+    }
+}
+
+private void DrawBoneBrowserPanel(IReadOnlyList<BoneCatalogEntry> catalog)
+{
+    ImGui.Text("Skeleton");
+
+    if (ImGui.Button("Refresh Skeleton", new Vector2(-1, 30)))
+    {
+        plugin.BoneCatalogService.Refresh();
+    }
+
+    var search = plugin.Configuration.TemplateBoneSearch;
+
+    ImGui.SetNextItemWidth(-1);
+
+    if (ImGui.InputText("##BoneSearch", ref search, 128))
+    {
+        plugin.Configuration.TemplateBoneSearch = search;
+        plugin.SaveConfig();
+    }
+
+    ImGui.Separator();
+
+    var filtered = catalog.AsEnumerable();
+
+    if (!string.IsNullOrWhiteSpace(search))
+    {
+        filtered = filtered.Where(x =>
+            x.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
+    }
+
+    foreach (var group in filtered.GroupBy(x => x.Category).OrderBy(x => x.Key))
+    {
+        if (!ImGui.CollapsingHeader(group.Key.ToString(), ImGuiTreeNodeFlags.DefaultOpen))
+            continue;
+
+        foreach (var bone in group.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var selected = string.Equals(
+                plugin.Configuration.ActiveBoneName,
+                bone.Name,
+                StringComparison.OrdinalIgnoreCase);
+
+            if (ImGui.Selectable($"{bone.Name}##bone{bone.Name}", selected))
+            {
+                plugin.Configuration.ActiveBoneName = bone.Name;
+                plugin.SaveConfig();
+            }
+        }
+    }
+}
+
+private void DrawBoneEditorPanel()
+{
+    ImGui.Text("Bone Editor");
+
+    var template = GetActiveBoneSmithTemplate();
+    var boneName = plugin.Configuration.ActiveBoneName;
+
+    if (template is null)
+    {
+        ImGui.TextDisabled("Create or select a template first.");
+        return;
+    }
+
+    if (string.IsNullOrWhiteSpace(boneName))
+    {
+        ImGui.TextDisabled("Select a bone from the skeleton browser.");
+        return;
+    }
+
+    if (!template.Bones.TryGetValue(boneName, out var transform))
+    {
+        transform = new EditableBoneTransform();
+        template.Bones[boneName] = transform;
+    }
+
+    ImGui.Text(boneName);
+    ImGui.Separator();
+
+    var enabled = transform.Enabled;
+
+    if (ImGui.Checkbox("Enable this bone edit", ref enabled))
+    {
+        transform.Enabled = enabled;
+    }
+
+    DrawVector3Editor("Translation", ref transform.Translation, -20f, 20f, 0.01f);
+    DrawVector3Editor("Rotation", ref transform.Rotation, -180f, 180f, 0.1f);
+    DrawVector3Editor("Scale", ref transform.Scaling, 0.01f, 5f, 0.01f);
+    DrawVector3Editor("Child Scale", ref transform.ChildScaling, 0.01f, 5f, 0.01f);
+
+    ImGui.Separator();
+
+    var propTranslation = transform.PropagateTranslation;
+    if (ImGui.Checkbox("Propagate Translation", ref propTranslation))
+        transform.PropagateTranslation = propTranslation;
+
+    var propRotation = transform.PropagateRotation;
+    if (ImGui.Checkbox("Propagate Rotation", ref propRotation))
+        transform.PropagateRotation = propRotation;
+
+    var propScale = transform.PropagateScale;
+    if (ImGui.Checkbox("Propagate Scale", ref propScale))
+        transform.PropagateScale = propScale;
+
+    var childIndependent = transform.ChildScalingIndependent;
+    if (ImGui.Checkbox("Independent Child Scaling", ref childIndependent))
+        transform.ChildScalingIndependent = childIndependent;
+
+    ImGui.Separator();
+
+    if (ImGui.Button("Reset Bone", new Vector2(120, 30)))
+    {
+        template.Bones.Remove(boneName);
+    }
+
+    ImGui.SameLine();
+
+    if (ImGui.Button("Save Template", new Vector2(140, 30)))
+    {
+        plugin.BoneSmithTemplateService.Save(template);
+    }
+}
+
+private BoneSmithTemplate? GetActiveBoneSmithTemplate()
+{
+    return plugin.BoneSmithTemplateService.Templates.FirstOrDefault(x =>
+        string.Equals(
+            x.UniqueId,
+            plugin.Configuration.ActiveBoneSmithTemplateId,
+            StringComparison.OrdinalIgnoreCase));
+}
+
+private static void DrawVector3Editor(
+    string label,
+    ref Vector3 value,
+    float min,
+    float max,
+    float speed)
+{
+    ImGui.Text(label);
+
+    var x = value.X;
+    var y = value.Y;
+    var z = value.Z;
+
+    ImGui.SetNextItemWidth(90);
+    var changedX = ImGui.DragFloat($"X##{label}", ref x, speed, min, max);
+
+    ImGui.SameLine();
+
+    ImGui.SetNextItemWidth(90);
+    var changedY = ImGui.DragFloat($"Y##{label}", ref y, speed, min, max);
+
+    ImGui.SameLine();
+
+    ImGui.SetNextItemWidth(90);
+    var changedZ = ImGui.DragFloat($"Z##{label}", ref z, speed, min, max);
+
+    if (changedX || changedY || changedZ)
+    {
+        value = new Vector3(x, y, z);
+    }
+}
 }
