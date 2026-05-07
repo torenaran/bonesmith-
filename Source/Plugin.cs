@@ -35,7 +35,8 @@ public sealed class Plugin : IDalamudPlugin
     internal LocalPlayerApplyService LocalPlayerApplyService { get; }
     internal RenderHookApplyService RenderHookApplyService { get; }
     internal RuntimeApplyService RuntimeApplyService { get; }
-
+    internal BoneCatalogService BoneCatalogService { get; }
+    internal BoneSmithTemplateService BoneSmithTemplateService { get; }
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -48,7 +49,8 @@ public sealed class Plugin : IDalamudPlugin
         LocalPlayerApplyService = new LocalPlayerApplyService(Configuration, ObjectTable, Log, RuntimePayloadService);
         RenderHookApplyService = new RenderHookApplyService(SigScanner, GameInteropProvider, Log, LocalPlayerApplyService);
         RuntimeApplyService = new RuntimeApplyService(Configuration, PluginInterface, Log, RuntimePayloadService, LocalPlayerApplyService, RenderHookApplyService);
-
+        BoneCatalogService = new BoneCatalogService(ObjectTable, Log);
+        BoneSmithTemplateService = new BoneSmithTemplateService(PluginInterface, Log);
         mainWindow = new MainWindow(this);
         windowSystem.AddWindow(mainWindow);
 

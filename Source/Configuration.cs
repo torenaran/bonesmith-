@@ -1,5 +1,6 @@
 using BoneSmith.Models;
 using Dalamud.Configuration;
+using BoneSmith.Models;
 
 namespace BoneSmith;
 
@@ -46,6 +47,10 @@ public sealed class Configuration : IPluginConfiguration
     public string? ActiveTemplateId { get; set; }
     public string? ActiveTemplateName { get; set; }
     public string? ActiveTemplatePath { get; set; }
+    public string? ActiveBoneSmithTemplateId { get; set; }
+    public string? ActiveBoneName { get; set; }
+    public string TemplateBoneSearch { get; set; } = string.Empty;
+    public BoneCategory? ActiveBoneCategoryFilter { get; set; }
 
     public string? SelectedProfilePath
     {
